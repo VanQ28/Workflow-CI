@@ -4,7 +4,7 @@ on:
   push:
     branches: [ main ]
     paths:
-      - 'MLProject/namadataset_preprocessing/**' 
+      - 'MLProject/Amazon_Preprocessing/**' 
   workflow_dispatch: 
 
 jobs:
