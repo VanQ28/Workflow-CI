@@ -1,0 +1,13 @@
+name: amazon_sales_env
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.12.10
+  - pip
+  - pip:
+      - mlflow
+      - pandas
+      - scikit-learn
+      - dagshub
+      - matplotlib
