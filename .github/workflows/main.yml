@@ -28,7 +28,6 @@ jobs:
       - name: Run MLflow Project (Local Training)
         run: |
           cd MLProject
-          # Menjalankan training lokal (menghindari error 'Run Not Found' di DagsHub)
           mlflow run . --env-manager=local
 
       - name: Collect Artifacts for Docker
