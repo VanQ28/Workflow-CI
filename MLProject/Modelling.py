@@ -2,8 +2,6 @@ import pandas as pd
 import numpy as np
 import mlflow
 import mlflow.sklearn
-import dagshub
-import dagshub.auth 
 import argparse 
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
@@ -11,15 +9,19 @@ import os
 
 dagshub_token = os.getenv("DAGSHUB_TOKEN")
 repo_owner = "VanQ28"
-repo_name = "Workflow_CI"
+repo_name = "Workflow_CI" 
 
 if dagshub_token:
-    dagshub.auth.add_app_token(token=dagshub_token)
-    os.environ['DAGSHUB_USER_TOKEN'] = dagshub_token
+    os.environ['MLFLOW_TRACKING_USERNAME'] = dagshub_token
+    os.environ['MLFLOW_TRACKING_PASSWORD'] = dagshub_token
     mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
+else:
+    try:
+        import dagshub
+        dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
+    except:
+        pass
 
-# Inisialisasi DagsHub
-dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
 mlflow.set_experiment("Amazon_Sales")
 
 def train_model(train_path, test_path, n_estimators, max_depth):
@@ -28,7 +30,7 @@ def train_model(train_path, test_path, n_estimators, max_depth):
     full_test_path = os.path.join(base_dir, test_path)
 
     if not os.path.exists(full_train_path):
-        raise FileNotFoundError(f"Dataset TIDAK ditemukan! Cek: {full_train_path}")
+        raise FileNotFoundError(f"Dataset tidak ditemukan: {full_train_path}")
 
     train = pd.read_csv(full_train_path)
     test = pd.read_csv(full_test_path)
@@ -38,7 +40,7 @@ def train_model(train_path, test_path, n_estimators, max_depth):
     X_test = test[['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']]
     y_test = test['TotalAmount']
 
-    with mlflow.start_run(run_name="Random Forest CI-Workflow"):
+    with mlflow.start_run(run_name="CI-Retraining-Final"):
         params = {"n_estimators": n_estimators, "max_depth": max_depth, "random_state": 42}
         mlflow.log_params(params)
 
@@ -58,7 +60,7 @@ def train_model(train_path, test_path, n_estimators, max_depth):
         mlflow.log_artifact("feature_importance.csv")
 
         mlflow.sklearn.log_model(model, "random-forest-model")
-        print(f"Retraining Selesai! R2: {r2}")
+        print(f"Training Selesai di GitHub Actions! R2: {r2}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
