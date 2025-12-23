@@ -5,8 +5,11 @@ conda_env: conda.yaml
 entry_points:
   main:
     parameters:
-      train_path: {type: string, default: "Amazon_Preprocessing/amazon_train.csv"}
-      test_path: {type: string, default: "Amazon_Preprocessing/amazon_test.csv"}
+      data_path: {type: string, default: "Amazon_Preprocessing/amazon_train.csv"}
+      output_dir: {type: string, default: "artifacts"}
+      target: {type: string, default: "TotalAmount"}
       experiment_name: {type: string, default: "Amazon_Sales"}
-      run_name: {type: string, default: "Random Forest Final Advanced"}
-    command: "python Modelling.py --train_path {train_path} --test_path {test_path} --experiment_name {experiment_name} --run_name {run_name}"
+      run_name: {type: string, default: "advanced_rf_training"}
+      test_size: {type: float, default: 0.2}
+      random_state: {type: int, default: 42}
+    command: "python Modelling.py --data_path {data_path} --output_dir {output_dir} --target {target} --experiment_name {experiment_name} --run_name {run_name} --test_size {test_size} --random_state {random_state}"
