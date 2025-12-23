@@ -8,8 +8,8 @@ from mlflow.models.signature import infer_signature
 from sklearn.utils import estimator_html_repr
 
 # Inisialisasi DagsHub
-dagshub.init(repo_owner='VanQ28', repo_name='Workflow_CI', mlflow=True)
-mlflow.set_tracking_uri("https://dagshub.com/VanQ28/Workflow_CI.mlflow")
+dagshub.init(repo_owner='vanq28', repo_name='Workflow_CI', mlflow=True)
+mlflow.set_tracking_uri("https://dagshub.com/vanq28/Workflow_CI.mlflow")
 mlflow.set_experiment("Amazon_Sales")
 
 def train_model():
@@ -53,3 +53,4 @@ def train_model():
 
 if __name__ == "__main__":
     train_model()
+
