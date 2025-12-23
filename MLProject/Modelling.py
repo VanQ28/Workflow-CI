@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import os
 import json
 import argparse
@@ -118,3 +117,4 @@ if __name__ == "__main__":
     
     trainer = AmazonSalesTrainer(args)
     trainer.execute_training()
+
