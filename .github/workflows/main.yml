@@ -30,27 +30,37 @@ jobs:
           cd MLProject
           mlflow run . --env-manager=local
 
-      - name: Collect Artifacts for Docker
+     - name: Collect Artifacts for Docker
         if: success()
         run: |
           python - << 'PY'
           import os, shutil, mlflow
-          # Set tracking ke folder lokal yang baru saja dibuat oleh mlflow run
-          mlflow.set_tracking_uri(f"file:{os.getcwd()}/MLProject/mlruns")
           
-          # Ambil Run terbaru dari experiment lokal
-          # Pastikan experiment_names sesuai dengan yang ada di Modelling.py (Amazon_Sales)
-          runs = mlflow.search_runs(experiment_names=["Amazon_Sales"], order_by=["start_time DESC"], max_results=1)
+          # Arahkan ke folder mlruns di dalam MLProject
+          base_mlruns = os.path.join(os.getcwd(), "MLProject", "mlruns")
+          mlflow.set_tracking_uri(f"file:{base_mlruns}")
+          
+          print(f"Mencari di: {base_mlruns}")
+          
+          # Debug: Lihat experiment apa saja yang ada
+          all_exps = mlflow.search_experiments()
+          exp_names = [e.name for e in all_exps]
+          print(f"Experiment yang ditemukan: {exp_names}")
+          
+          # Gunakan pencarian yang lebih fleksibel
+          runs = mlflow.search_runs(order_by=["start_time DESC"], max_results=1)
           
           if runs.empty:
+              # Coba cek folder default jika Amazon_Sales tidak ditemukan
               raise SystemExit("Error: Tidak ada local run yang ditemukan di mlruns!")
           
           run_id = runs.iloc[0].run_id
-          print(f"Mengambil model lokal. Run ID: {run_id}")
+          print(f"Mengambil model dari Run ID: {run_id}")
           
-          # Download model dari mlruns lokal ke folder temp_model
+          # Download model
           path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
           shutil.copytree(path, "temp_model", dirs_exist_ok=True)
+          print("Model berhasil disiapkan di folder temp_model")
           PY
 
       - name: Upload Model as Workflow Artifact
