@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import os
 import json
 import argparse
@@ -20,6 +21,7 @@ class AmazonSalesTrainer:
 
     def setup_tracking(self):
         """Konfigurasi koneksi ke DagsHub."""
+        # Gunakan kredensial environment variables di GitHub Actions
         if not os.getenv("GITHUB_ACTIONS"):
             dagshub.init(
                 repo_owner='VanQ28', 
@@ -30,7 +32,7 @@ class AmazonSalesTrainer:
         mlflow.set_experiment(self.config.experiment_name)
 
     def load_and_split(self):
-        """Memuat dataset dan melakukan validasi kolom."""
+        """Memuat dataset."""
         if not os.path.exists(self.config.data_path):
             raise FileNotFoundError(f"Dataset missing: {self.config.data_path}")
         
@@ -50,7 +52,6 @@ class AmazonSalesTrainer:
         """Proses inti pelatihan dan logging."""
         X_train, X_test, y_train, y_test = self.load_and_split()
         
-        # Inisialisasi Model
         regressor = RandomForestRegressor(
             n_estimators=100, 
             max_depth=10, 
@@ -60,23 +61,28 @@ class AmazonSalesTrainer:
         regressor.fit(X_train, y_train)
         predictions = regressor.predict(X_test)
         
-        # Evaluasi
         metrics = {
             "mse": mean_squared_error(y_test, predictions),
             "mae": mean_absolute_error(y_test, predictions),
             "r2_score": r2_score(y_test, predictions)
         }
 
-        # Persiapan Folder Output
+        # Persiapan Folder Output (extras)
         output_path = os.path.join(self.config.output_dir, "extras")
         os.makedirs(output_path, exist_ok=True)
-        self.generate_plots(y_test, predictions, output_path)
         
-        # MLflow Logging
-        with mlflow.start_run(run_name=self.config.run_name):
+        plt.figure(figsize=(8, 5))
+        plt.scatter(y_test, predictions, color='blue', alpha=0.3)
+        plt.plot([y_test.min(), y_test.max()], [y_test.min(), y_test.max()], 'k--', lw=2)
+        plt.title("Actual vs Predicted")
+        plt.savefig(os.path.join(output_path, "training_confusion_matrix.png")) # Mengikuti saran reviewer
+        plt.close()
+        
+        with mlflow.start_run(run_name=self.config.run_name, nested=True):
             mlflow.log_params(vars(self.config))
             mlflow.log_metrics(metrics)
             
+            # Advanced Artifacts (Kriteria 2)
             signature = infer_signature(X_train, regressor.predict(X_train))
             mlflow.sklearn.log_model(
                 sk_model=regressor,
@@ -87,16 +93,7 @@ class AmazonSalesTrainer:
             
             mlflow.log_artifacts(output_path, artifact_path="extras")
             
-        print(f"Workflow Completed. R2 Score: {metrics['r2_score']:.4f}")
-
-    def generate_plots(self, y_true, y_pred, folder):
-        """Membuat plot evaluasi regresi."""
-        plt.figure(figsize=(8, 5))
-        plt.scatter(y_true, y_pred, color='blue', alpha=0.3)
-        plt.plot([y_true.min(), y_true.max()], [y_true.min(), y_true.max()], 'k--', lw=2)
-        plt.title("Regression Performance: Actual vs Predicted")
-        plt.savefig(os.path.join(folder, "regression_results.png"))
-        plt.close()
+        print(f"DONE: Training Success. R2 Score: {metrics['r2_score']:.4f}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -109,8 +106,5 @@ if __name__ == "__main__":
     parser.add_argument("--random_state", type=int, default=42)
     
     args = parser.parse_args()
-    
     trainer = AmazonSalesTrainer(args)
     trainer.execute_training()
-
-
