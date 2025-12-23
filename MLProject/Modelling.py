@@ -17,26 +17,19 @@ if dagshub_token:
     mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
 
 def train_model(args):
-    # Setup Experiment
     mlflow.set_experiment(args.experiment_name)
     
-    # Path dataset absolut
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_train_path = os.path.join(base_dir, args.train_path)
-    full_test_path = os.path.join(base_dir, args.test_path)
-    
     # Load Data
-    train_df = pd.read_csv(full_train_path)
-    test_df = pd.read_csv(full_test_path)
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    train_df = pd.read_csv(os.path.join(base_dir, args.train_path))
+    test_df = pd.read_csv(os.path.join(base_dir, args.test_path))
     
     features = ['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']
-    X_train = train_df[features]
-    y_train = train_df[args.target]
-    X_test = test_df[features]
-    y_test = test_df[args.target]
+    X_train, y_train = train_df[features], train_df[args.target]
+    X_test, y_test = test_df[features], test_df[args.target]
 
-    # REVISI: Menggunakan nested=True agar tidak konflik dengan Run ID dari MLflow Project
-    with mlflow.start_run(run_name=args.run_name, nested=True):
+    # Jalankan Run baru secara bersih
+    with mlflow.start_run(run_name=args.run_name):
         mlflow.log_params(vars(args))
         
         model = RandomForestRegressor(n_estimators=args.n_estimators, random_state=args.random_state)
@@ -52,23 +45,23 @@ def train_model(args):
         # Log Model ke folder 'model'
         mlflow.sklearn.log_model(model, "model")
         
-        # Simpan artefak tambahan
+        # Artefak lokal untuk CI
         os.makedirs(args.output_dir, exist_ok=True)
         with open(f"{args.output_dir}/summary.txt", "w") as f:
             f.write(f"R2: {r2}")
         mlflow.log_artifacts(args.output_dir, artifact_path="extras")
         
-        print(f"CI Retraining Success! R2: {r2}")
+        print(f"Retraining Success! R2: {r2}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_path", type=str)
-    parser.add_argument("--test_path", type=str)
-    parser.add_argument("--output_dir", type=str)
-    parser.add_argument("--target", type=str)
-    parser.add_argument("--experiment_name", type=str)
-    parser.add_argument("--run_name", type=str)
-    parser.add_argument("--n_estimators", type=int)
-    parser.add_argument("--random_state", type=int)
+    parser.add_argument("--train_path", type=str, default="Amazon_Preprocessing/amazon_train.csv")
+    parser.add_argument("--test_path", type=str, default="Amazon_Preprocessing/amazon_test.csv")
+    parser.add_argument("--output_dir", type=str, default="artifacts")
+    parser.add_argument("--target", type=str, default="TotalAmount")
+    parser.add_argument("--experiment_name", type=str, default="Amazon_Sales_Project")
+    parser.add_argument("--run_name", type=str, default="ci_rf_training")
+    parser.add_argument("--n_estimators", type=int, default=100)
+    parser.add_argument("--random_state", type=int, default=42)
     args = parser.parse_args()
     train_model(args)
