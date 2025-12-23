@@ -1,12 +1,15 @@
-name: Amazon_Sales_Project
-
+name: workflow_ci_amazon
 conda_env: conda.yaml
 
 entry_points:
   main:
     parameters:
-      train_path: {type: string, default: "Amazon_Preprocessing/amazon_train.csv"}
-      test_path: {type: string, default: "Amazon_Preprocessing/amazon_test.csv"}
+      train_path: {type: str, default: "Amazon_Preprocessing/amazon_train.csv"}
+      test_path: {type: str, default: "Amazon_Preprocessing/amazon_test.csv"}
+      output_dir: {type: str, default: "artifacts"}
+      target: {type: str, default: "TotalAmount"}
+      experiment_name: {type: str, default: "Amazon_Sales_Project"}
+      run_name: {type: str, default: "ci_rf_training"}
       n_estimators: {type: int, default: 100}
-      max_depth: {type: int, default: 10}
-    command: "python Modelling.py --train_path {train_path} --test_path {test_path} --n_estimators {n_estimators} --max_depth {max_depth}"
+      random_state: {type: int, default: 42}
+    command: "python Modelling.py --train_path {train_path} --test_path {test_path} --output_dir {output_dir} --target {target} --experiment_name {experiment_name} --run_name {run_name} --n_estimators {n_estimators} --random_state {random_state}"
