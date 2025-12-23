@@ -9,18 +9,13 @@ import os
 
 dagshub_token = os.getenv("DAGSHUB_TOKEN")
 repo_owner = "VanQ28"
-repo_name = "Workflow_CI" 
+repo_name = "Workflow_CI"
 
 if dagshub_token:
     os.environ['MLFLOW_TRACKING_USERNAME'] = dagshub_token
     os.environ['MLFLOW_TRACKING_PASSWORD'] = dagshub_token
     mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
-else:
-    try:
-        import dagshub
-        dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
-    except:
-        pass
+    print("Otorisasi DagsHub berhasil menggunakan token.")
 
 mlflow.set_experiment("Amazon_Sales")
 
@@ -71,3 +66,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train_model(args.train_path, args.test_path, args.n_estimators, args.max_depth)
+
