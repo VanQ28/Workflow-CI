@@ -10,7 +10,7 @@ import os
 
 dagshub_token = os.getenv("MLFLOW_TRACKING_PASSWORD")
 dagshub_username = os.getenv("MLFLOW_TRACKING_USERNAME")
-repo_name = "Model-Eksperimen_Richie-Leonard-Tjias"
+repo_name = "Workflow_CI"
 
 if dagshub_token and dagshub_username:
     os.environ['DAGSHUB_USER_TOKEN'] = dagshub_token
@@ -92,3 +92,4 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     train_model(args.train_path, args.test_path, args.n_estimators, args.max_depth)
+
