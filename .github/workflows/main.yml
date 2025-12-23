@@ -1,78 +1,119 @@
-import pandas as pd
-import numpy as np
-import mlflow
-import mlflow.sklearn
-import argparse 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
-import os
+name: CI - Amazon Sales Retrain + Docker
 
-# --- AUTENTIKASI OTOMATIS DAGSHUB ---
-dagshub_token = os.getenv("DAGSHUB_TOKEN")
-repo_owner = "VanQ28"
-repo_name = "Workflow_CI"
+on:
+  push:
+    branches: ["main"]
+    paths:
+      - 'MLProject/**'
+  workflow_dispatch:
 
-if dagshub_token:
-    os.environ['MLFLOW_TRACKING_USERNAME'] = dagshub_token
-    os.environ['MLFLOW_TRACKING_PASSWORD'] = dagshub_token
-    mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
+permissions:
+  contents: write
 
-def train_model(args):
-    mlflow.set_experiment(args.experiment_name)
-    
-    # Path dataset absolut
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_train_path = os.path.join(base_dir, args.train_path)
-    full_test_path = os.path.join(base_dir, args.test_path)
-    
-    # Load Train & Test Data
-    train_df = pd.read_csv(full_train_path)
-    test_df = pd.read_csv(full_test_path)
-    
-    # Seleksi Fitur (Sesuaikan dengan kolom CSV Amazon Anda)
-    features = ['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']
-    X_train = train_df[features]
-    y_train = train_df[args.target]
-    X_test = test_df[features]
-    y_test = test_df[args.target]
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-    with mlflow.start_run(run_name=args.run_name):
-        # Log semua argumen sebagai parameter
-        mlflow.log_params(vars(args))
-        
-        # Training Model
-        model = RandomForestRegressor(n_estimators=args.n_estimators, random_state=args.random_state)
-        model.fit(X_train, y_train)
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
-        # Evaluasi menggunakan Test Data
-        preds = model.predict(X_test)
-        rmse = np.sqrt(mean_squared_error(y_test, preds))
-        r2 = r2_score(y_test, preds)
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install mlflow==2.19.0 dagshub pandas scikit-learn matplotlib
 
-        # Log Metrics ke DagsHub
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("r2_score", r2)
+      - name: Run MLflow Project
+        env:
+          # Token ini digunakan untuk bypass login manual DagsHub
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          cd MLProject
+          # Menjalankan MLflow project dengan environment lokal
+          mlflow run . --env-manager=local
 
-        # Log Model ke folder 'model' untuk Docker build
-        mlflow.sklearn.log_model(model, "model")
-        
-        # Simpan artefak tambahan
-        os.makedirs(args.output_dir, exist_ok=True)
-        with open(f"{args.output_dir}/summary.txt", "w") as f:
-            f.write(f"Training using: {args.train_path}\nTesting using: {args.test_path}\nR2: {r2}")
-        mlflow.log_artifacts(args.output_dir, artifact_path="extras")
-        
-        print(f"CI Retraining Success! R2: {r2}")
+      - name: Collect Latest Run Artifacts
+        env:
+          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+        run: |
+          python - << 'PY'
+          import os, shutil, mlflow
+          
+          # Konfigurasi Repo
+          repo_owner = "VanQ28"
+          repo_name = "Workflow_CI"
+          mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
+          
+          # Cari run terbaru dari experiment Amazon_Sales_Project
+          try:
+              run = mlflow.search_runs(experiment_names=["Amazon_Sales_Project"], order_by=["start_time DESC"], max_results=1).iloc[0]
+              run_id = run.run_id
+              print(f"Mengambil Artefak untuk Run ID: {run_id}")
+              
+              out_dir = f"ci_outputs/{run_id}"
+              os.makedirs(out_dir, exist_ok=True)
+              
+              # Download folder model untuk kebutuhan build Docker
+              model_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
+              shutil.copytree(model_path, f"{out_dir}/model", dirs_exist_ok=True)
+              
+              # Simpan Run ID sebagai referensi
+              with open(f"{out_dir}/run_id.txt", "w") as f:
+                  f.write(run_id)
+                  
+          except Exception as e:
+              print(f"Gagal mengambil artefak: {e}")
+              exit(1)
+          PY
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--train_path", type=str)
-    parser.add_argument("--test_path", type=str)
-    parser.add_argument("--output_dir", type=str)
-    parser.add_argument("--target", type=str)
-    parser.add_argument("--experiment_name", type=str)
-    parser.add_argument("--run_name", type=str)
-    parser.add_argument("--n_estimators", type=int)
-    parser.add_argument("--random_state", type=int)
-    args = parser.parse_args()
-    train_model(args)
+      - name: Commit and Push Artifacts
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add ci_outputs/ || true
+          git commit -m "CI: Update model artifacts [skip ci]" || echo "No changes to commit"
+          git push || echo "No changes to push"
+
+  docker:
+    needs: retrain
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Penting untuk mengambil commit terbaru dari job sebelumnya
+
+      - name: Pull latest changes
+        run: git pull
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install MLflow & Dependencies
+        run: pip install mlflow==2.19.0 scikit-learn pandas
+
+      - name: Login Docker Hub
+        run: |
+          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Build and Push Docker Image
+        run: |
+          # Ambil Run ID terbaru dari folder ci_outputs yang baru di-commit
+          LATEST_RUN_DIR=$(ls -td ci_outputs/*/ | head -n 1)
+          RUN_ID=$(basename $LATEST_RUN_DIR)
+          
+          IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-ci:latest"
+          
+          echo "Building Docker for Run ID: $RUN_ID"
+          mlflow models build-docker -m "ci_outputs/$RUN_ID/model" -n "$IMAGE_NAME"
+          
+          echo "Pushing Image to Docker Hub..."
+          docker push "$IMAGE_NAME"
