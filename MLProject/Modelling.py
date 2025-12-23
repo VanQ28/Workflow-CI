@@ -19,7 +19,6 @@ if dagshub_token:
 def train_model(args):
     mlflow.set_experiment(args.experiment_name)
     
-    # Load Data
     base_dir = os.path.dirname(os.path.abspath(__file__))
     train_df = pd.read_csv(os.path.join(base_dir, args.train_path))
     test_df = pd.read_csv(os.path.join(base_dir, args.test_path))
@@ -28,7 +27,7 @@ def train_model(args):
     X_train, y_train = train_df[features], train_df[args.target]
     X_test, y_test = test_df[features], test_df[args.target]
 
-    # Jalankan Run baru secara bersih
+    # Memulai Run baru secara independen di DagsHub
     with mlflow.start_run(run_name=args.run_name):
         mlflow.log_params(vars(args))
         
@@ -45,13 +44,13 @@ def train_model(args):
         # Log Model ke folder 'model'
         mlflow.sklearn.log_model(model, "model")
         
-        # Artefak lokal untuk CI
+        # Artefak lokal untuk kebutuhan CI
         os.makedirs(args.output_dir, exist_ok=True)
         with open(f"{args.output_dir}/summary.txt", "w") as f:
             f.write(f"R2: {r2}")
         mlflow.log_artifacts(args.output_dir, artifact_path="extras")
         
-        print(f"Retraining Success! R2: {r2}")
+        print(f"Retraining Berhasil! R2: {r2}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
