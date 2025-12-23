@@ -34,7 +34,8 @@ jobs:
           mlflow run MLProject \
             -P train_path=Amazon_Preprocessing/amazon_train.csv \
             -P test_path=Amazon_Preprocessing/amazon_test.csv \
-            --experiment-name Amazon_Sales_Project
+            --experiment-name Amazon_Sales_Project \
+            --env-manager local
 
       - name: Collect Artifacts for Docker
         if: success()
