@@ -25,25 +25,32 @@ class AmazonSalesTrainer:
             X, y, test_size=self.args.test_size, random_state=self.args.random_state
         )
 
+        # Set experiment
+        mlflow.sklearn.autolog()
+
         # Training
-        model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=self.args.random_state)
-        model.fit(X_train, y_train)
-        preds = model.predict(X_test)
+        model = RandomForestRegressor(
+            n_estimators=100, 
+            max_depth=10, 
+            random_state=self.args.random_state
+        )
         
-        # Metrics
+        # Proses fit akan memicu autolog untuk mencatat metadata model
+        model.fit(X_train, y_train)
+        
+        # Predict & Evaluation
+        preds = model.predict(X_test)
         r2 = r2_score(y_test, preds)
 
-        # Save Plot (Extras)
+        # Save Plot (Manual Artifact tetap diperlukan untuk Plot Kustom)
         os.makedirs(self.args.output_dir, exist_ok=True)
         plt.figure(figsize=(10, 6))
         plt.scatter(y_test, preds, alpha=0.4)
+        plt.title("Amazon Sales: Actual vs Predicted")
         plt.savefig(os.path.join(self.args.output_dir, "training_results.png"))
         plt.close()
 
-        # Logging (Directly to the active run created by mlflow run)
-        mlflow.log_params(vars(self.args))
-        mlflow.log_metric("r2_score", float(r2))
-        
+        # Advanced Logging (Signature & Input Example)
         signature = infer_signature(X_train, model.predict(X_train))
         mlflow.sklearn.log_model(
             sk_model=model,
@@ -51,8 +58,11 @@ class AmazonSalesTrainer:
             signature=signature,
             input_example=X_train.iloc[:5]
         )
+        
+        # Log plot kustom ke folder extras
         mlflow.log_artifacts(self.args.output_dir, artifact_path="extras")
-        print(f"Training Selesai. R2 Score: {r2}")
+        
+        print(f"Training Selesai dengan Autolog. R2 Score: {r2}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -62,7 +72,7 @@ if __name__ == "__main__":
     parser.add_argument("--test_size", type=float, default=0.2)
     parser.add_argument("--random_state", type=int, default=42)
     parser.add_argument("--experiment_name", type=str, default="Amazon_Sales")
-    parser.add_argument("--run_name", type=str, default="local_run")
+    parser.add_argument("--run_name", type=str, default="autolog_run")
     
     args = parser.parse_args()
     AmazonSalesTrainer(args).run()
