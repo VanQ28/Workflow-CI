@@ -27,47 +27,53 @@ jobs:
 
       - name: Run MLflow Project (Local Training)
         run: |
+          # Masuk ke folder project agar mlruns tercipta di lokasi yang benar
           cd MLProject
-          mlflow run . --env-manager=local
+          mlflow run . --env-manager=local --experiment-name Amazon_Sales
 
-     - name: Collect Artifacts for Docker
+      - name: Collect Artifacts for Docker
         if: success()
         run: |
           python - << 'PY'
           import os, shutil, mlflow
           
-          # Arahkan ke folder mlruns di dalam MLProject
-          base_mlruns = os.path.join(os.getcwd(), "MLProject", "mlruns")
-          mlflow.set_tracking_uri(f"file:{base_mlruns}")
+          # Path absolut ke folder mlruns yang baru saja dibuat di dalam MLProject
+          base_path = os.getcwd()
+          mlruns_dir = os.path.join(base_path, "MLProject", "mlruns")
           
-          print(f"Mencari di: {base_mlruns}")
+          # MLflow untuk mencari data 
+          mlflow.set_tracking_uri(f"file:{mlruns_dir}")
+          print(f"Checking mlruns at: {mlruns_dir}")
           
-          # Debug: Lihat experiment apa saja yang ada
-          all_exps = mlflow.search_experiments()
-          exp_names = [e.name for e in all_exps]
-          print(f"Experiment yang ditemukan: {exp_names}")
-          
-          # Gunakan pencarian yang lebih fleksibel
+          # Cari run terbaru 
           runs = mlflow.search_runs(order_by=["start_time DESC"], max_results=1)
           
           if runs.empty:
-              # Coba cek folder default jika Amazon_Sales tidak ditemukan
+              # Debugging: List folder jika gagal
+              print(f"Contents of {mlruns_dir}: {os.listdir(mlruns_dir) if os.path.exists(mlruns_dir) else 'NOT FOUND'}")
               raise SystemExit("Error: Tidak ada local run yang ditemukan di mlruns!")
           
           run_id = runs.iloc[0].run_id
-          print(f"Mengambil model dari Run ID: {run_id}")
+          print(f"Found Latest Run ID: {run_id}")
           
-          # Download model
-          path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
-          shutil.copytree(path, "temp_model", dirs_exist_ok=True)
-          print("Model berhasil disiapkan di folder temp_model")
+          # Download model ke folder temp_model di root workspace
+          # Ini dibutuhkan agar job docker bisa mengambilnya
+          model_src = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
+          shutil.copytree(model_src, "temp_model", dirs_exist_ok=True)
+          
+          # Simpan Run ID ke file untuk verifikasi di step Docker
+          with open("run_id.txt", "w") as f:
+              f.write(run_id)
+          
+          print("Model artifacts successfully copied to temp_model/")
           PY
 
       - name: Upload Model as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trained-model
+          name: trained-model-files
           path: temp_model/
+          retention-days: 1
 
   docker:
     needs: retrain
@@ -79,7 +85,7 @@ jobs:
       - name: Download Model Artifact
         uses: actions/download-artifact@v4
         with:
-          name: trained-model
+          name: trained-model-files
           path: temp_model
 
       - name: Set up Python
@@ -90,10 +96,14 @@ jobs:
       - name: Login Docker Hub
         run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
-      - name: Build & Push Docker
+      - name: Build & Push Docker Image
         run: |
           pip install mlflow==2.19.0 scikit-learn pandas
-          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/workflow_ci:latest"
-          # Build docker menggunakan model yang sudah di-download tadi
-          mlflow models build-docker -m "temp_model" -n "$IMAGE"
-          docker push "$IMAGE"
+          # Nama image disesuaikan dengan standar Docker Hub Anda
+          IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-model:latest"
+          
+          # Membangun Docker menggunakan model yang sudah di-download
+          mlflow models build-docker -m "temp_model" -n "$IMAGE_NAME"
+          
+          # Push ke Docker Hub
+          docker push "$IMAGE_NAME"
