@@ -27,43 +27,50 @@ jobs:
 
       - name: Run MLflow Project
         run: |
+          # Menjalankan training di subfolder MLProject
           cd MLProject
           mlflow run . --env-manager=local --experiment-name Amazon_Sales
 
-      - name: Collect Artifacts for Docker
+      - name: Collect Artifacts for Docker (Physical Search)
         if: success()
         run: |
           python - << 'PY'
-          import os, shutil, mlflow, glob
+          import os, shutil, glob
           
-          # Cari folder mlruns di mana saja (dinamis)
-          candidates = glob.glob("**/mlruns", recursive=True)
-          if not candidates:
-              raise SystemExit("Error: Folder mlruns tidak ditemukan!")
+          # 1. Cari file MLmodel secara fisik di seluruh workspace
+          # Ini adalah tanda mutlak bahwa MLflow telah berhasil menyimpan model
+          print("Mencari file MLmodel secara fisik di MLProject/mlruns...")
+          model_indicators = glob.glob("MLProject/mlruns/**/MLmodel", recursive=True)
           
-          mlruns_dir = os.path.abspath(candidates[0])
-          mlflow.set_tracking_uri(f"file:{mlruns_dir}")
+          if not model_indicators:
+              print("ERROR: File MLmodel tidak ditemukan!")
+              # Debug: List isi folder untuk melihat apa yang ada
+              if os.path.exists("MLProject/mlruns"):
+                  for root, dirs, files in os.walk("MLProject/mlruns"):
+                      print(f"Path: {root}, Files: {files}")
+              raise SystemExit("Gagal menemukan hasil training. Periksa log 'Run MLflow Project'.")
           
-          # Ambil Run terbaru
-          runs = mlflow.search_runs(order_by=["start_time DESC"], max_results=1)
-          if runs.empty:
-              raise SystemExit("Error: Tidak ada data Run di mlruns!")
+          # 2. Urutkan berdasarkan waktu modifikasi terbaru dan ambil yang paling baru
+          model_indicators.sort(key=os.path.getmtime, reverse=True)
+          model_dir = os.path.dirname(model_indicators[0])
+          print(f"Model ditemukan di: {model_dir}")
           
-          run_id = runs.iloc[0].run_id
-          print(f"Mengambil Model dari Run ID: {run_id}")
-          
-          # Download model ke folder temp_model
-          model_src = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
+          # 3. Salin folder model tersebut ke root sebagai 'temp_model'
           dst = os.path.join(os.getcwd(), "temp_model")
-          if os.path.exists(dst): shutil.rmtree(dst)
-          shutil.copytree(model_src, dst)
+          if os.path.exists(dst):
+              shutil.rmtree(dst)
+          
+          shutil.copytree(model_dir, dst)
+          print(f"Berhasil! Model disalin ke: {dst}")
+          print("Isi folder temp_model:", os.listdir(dst))
           PY
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: trained-model
+          name: trained-model-files
           path: temp_model/
+          retention-days: 1
 
   docker:
     needs: retrain
@@ -75,13 +82,21 @@ jobs:
       - name: Download Model
         uses: actions/download-artifact@v4
         with:
-          name: trained-model
+          name: trained-model-files
           path: temp_model
+
+      - name: Login Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
 
       - name: Build & Push Docker
         run: |
+          # Install mlflow di job ini untuk perintah build-docker
           pip install mlflow==2.19.0 scikit-learn pandas
-          echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-model:latest"
-          mlflow models build-docker -m "temp_model" -n "$IMAGE"
-          docker push "$IMAGE"
+          
+          IMAGE_TAG="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-model:latest"
+          
+          # Membangun Image Docker dari folder temp_model
+          mlflow models build-docker -m "temp_model" -n "$IMAGE_TAG"
+          
+          # Push ke Docker Hub
+          docker push "$IMAGE_TAG"
