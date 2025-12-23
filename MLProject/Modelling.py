@@ -70,17 +70,13 @@ class AmazonSalesTrainer:
         # Persiapan Folder Output
         output_path = os.path.join(self.config.output_dir, "extras")
         os.makedirs(output_path, exist_ok=True)
-        
-        # Simpan Visualisasi
         self.generate_plots(y_test, predictions, output_path)
         
         # MLflow Logging
-        run_id_env = os.environ.get("MLFLOW_RUN_ID")
-        with (mlflow.start_run(run_id=run_id_env) if run_id_env else mlflow.start_run(run_name=self.config.run_name)):
+        with mlflow.start_run(run_name=self.config.run_name):
             mlflow.log_params(vars(self.config))
             mlflow.log_metrics(metrics)
             
-            # Advanced Artifacts (Penting untuk Kriteria 2)
             signature = infer_signature(X_train, regressor.predict(X_train))
             mlflow.sklearn.log_model(
                 sk_model=regressor,
@@ -89,7 +85,6 @@ class AmazonSalesTrainer:
                 input_example=X_train.iloc[:5]
             )
             
-            # Log tambahan extras
             mlflow.log_artifacts(output_path, artifact_path="extras")
             
         print(f"Workflow Completed. R2 Score: {metrics['r2_score']:.4f}")
@@ -117,4 +112,5 @@ if __name__ == "__main__":
     
     trainer = AmazonSalesTrainer(args)
     trainer.execute_training()
+
 
