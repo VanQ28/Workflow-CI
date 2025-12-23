@@ -23,43 +23,38 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install mlflow==2.19.0 dagshub pandas scikit-learn matplotlib
+          pip install mlflow==2.19.0 pandas scikit-learn matplotlib dagshub
 
-      - name: Run MLflow Project (Training)
-        env:
-          MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
-          MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
-          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
+      - name: Run MLflow Project (Local Training)
         run: |
           cd MLProject
-          mlflow run . \
-            --env-manager=local \
-            --experiment-name Amazon_Sales \
-            -P data_path=Amazon_Preprocessing/amazon_train.csv \
-            -P target=TotalAmount
+          # Menjalankan training lokal (menghindari error 'Run Not Found' di DagsHub)
+          mlflow run . --env-manager=local
 
       - name: Collect Artifacts for Docker
         if: success()
-        env:
-          DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
           python - << 'PY'
           import os, shutil, mlflow
-          repo = "VanQ28/Workflow_CI"
-          mlflow.set_tracking_uri(f"https://dagshub.com/{repo}.mlflow")
+          # Set tracking ke folder lokal yang baru saja dibuat oleh mlflow run
+          mlflow.set_tracking_uri(f"file:{os.getcwd()}/MLProject/mlruns")
           
-          # Ambil Run terbaru
-          run = mlflow.search_runs(experiment_names=["Amazon_Sales_Project"], order_by=["start_time DESC"], max_results=1).iloc[0]
-          run_id = run.run_id
-          print(f"Downloading model for Docker build. Run ID: {run_id}")
+          # Ambil Run terbaru dari experiment lokal
+          # Pastikan experiment_names sesuai dengan yang ada di Modelling.py (Amazon_Sales)
+          runs = mlflow.search_runs(experiment_names=["Amazon_Sales"], order_by=["start_time DESC"], max_results=1)
           
-          # Download ke folder 'temp_model' (tidak akan di-push ke git)
+          if runs.empty:
+              raise SystemExit("Error: Tidak ada local run yang ditemukan di mlruns!")
+          
+          run_id = runs.iloc[0].run_id
+          print(f"Mengambil model lokal. Run ID: {run_id}")
+          
+          # Download model dari mlruns lokal ke folder temp_model
           path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
           shutil.copytree(path, "temp_model", dirs_exist_ok=True)
           PY
 
-      - name: Upload Model as Workflow Artifact (Internal)
-        # Ini menyimpan file di GitHub Actions (bukan di repo) selama 90 hari
+      - name: Upload Model as Workflow Artifact
         uses: actions/upload-artifact@v4
         with:
           name: trained-model
@@ -72,7 +67,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
 
-      - name: Download Model
+      - name: Download Model Artifact
         uses: actions/download-artifact@v4
         with:
           name: trained-model
@@ -90,6 +85,6 @@ jobs:
         run: |
           pip install mlflow==2.19.0 scikit-learn pandas
           IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/workflow_ci:latest"
-          # Build menggunakan folder temp_model hasil download
+          # Build docker menggunakan model yang sudah di-download tadi
           mlflow models build-docker -m "temp_model" -n "$IMAGE"
           docker push "$IMAGE"
