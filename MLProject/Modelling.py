@@ -1,66 +1,55 @@
 import pandas as pd
-import numpy as np
 import mlflow
 import mlflow.sklearn
-import argparse 
-from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score
+import dagshub
 import os
+from sklearn.ensemble import RandomForestRegressor
+from mlflow.models.signature import infer_signature
+from sklearn.utils import estimator_html_repr
 
-dagshub_token = os.getenv("DAGSHUB_TOKEN")
-repo_owner = "VanQ28"
-repo_name = "Workflow_CI"
+# Inisialisasi DagsHub
+dagshub.init(repo_owner='VanQ28', repo_name='Model-Eksperimen_Richie-Leonard-Tjias', mlflow=True)
+mlflow.set_tracking_uri("https://dagshub.com/VanQ28/Membangun_Model.mlflow")
+mlflow.set_experiment("Amazon_Sales")
 
-if dagshub_token:
-    os.environ['MLFLOW_TRACKING_USERNAME'] = dagshub_token
-    os.environ['MLFLOW_TRACKING_PASSWORD'] = dagshub_token
-    mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
-
-def train_model(args):
-    mlflow.set_experiment(args.experiment_name)
+def train_model():
+    base_path = os.path.dirname(__file__)
+    path_train = os.path.join(base_path, "Amazon_Preprocessing", "amazon_train.csv")
+    path_test = os.path.join(base_path, "Amazon_Preprocessing", "amazon_test.csv")
     
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    train_df = pd.read_csv(os.path.join(base_dir, args.train_path))
-    test_df = pd.read_csv(os.path.join(base_dir, args.test_path))
-    
+    train = pd.read_csv(path_train)
+    test = pd.read_csv(path_test)
+
     features = ['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']
-    X_train, y_train = train_df[features], train_df[args.target]
-    X_test, y_test = test_df[features], test_df[args.target]
+    X_train = train[features].astype(float)
+    y_train = train['TotalAmount'].astype(float)
 
-    # Memulai Run baru secara independen di DagsHub
-    with mlflow.start_run(run_name=args.run_name):
-        mlflow.log_params(vars(args))
+    # Matikan log_models di autolog agar tidak duplikat dengan log manual kita
+    mlflow.sklearn.autolog(log_models=False)
+
+    with mlflow.start_run(run_name="Random Forest Advanced Artifacts"):
+        model = RandomForestRegressor(n_estimators=100, max_depth=10, random_state=42)
+        model.fit(X_train, y_train) 
         
-        model = RandomForestRegressor(n_estimators=args.n_estimators, random_state=args.random_state)
-        model.fit(X_train, y_train)
+        # Signature & Input Example (Menghasilkan input_example.json)
+        signature = infer_signature(X_train, model.predict(X_train))
+        input_example = X_train.iloc[:5]
 
-        preds = model.predict(X_test)
-        rmse = np.sqrt(mean_squared_error(y_test, preds))
-        r2 = r2_score(y_test, preds)
+        # Log Model
+        mlflow.sklearn.log_model(
+            sk_model=model,
+            artifact_path="model",
+            signature=signature,
+            input_example=input_example
+        )
 
-        mlflow.log_metric("rmse", rmse)
-        mlflow.log_metric("r2_score", r2)
-
-        # Log Model ke folder 'model'
-        mlflow.sklearn.log_model(model, "model")
+        # Estimator HTML
+        html_path = "estimator.html"
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(estimator_html_repr(model))
+        mlflow.log_artifact(html_path, artifact_path="model")
         
-        # Artefak lokal untuk kebutuhan CI
-        os.makedirs(args.output_dir, exist_ok=True)
-        with open(f"{args.output_dir}/summary.txt", "w") as f:
-            f.write(f"R2: {r2}")
-        mlflow.log_artifacts(args.output_dir, artifact_path="extras")
-        
-        print(f"Retraining Berhasil! R2: {r2}")
+        print("Training Selesai. Semua artefak advanced telah diunggah!")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--train_path", type=str, default="Amazon_Preprocessing/amazon_train.csv")
-    parser.add_argument("--test_path", type=str, default="Amazon_Preprocessing/amazon_test.csv")
-    parser.add_argument("--output_dir", type=str, default="artifacts")
-    parser.add_argument("--target", type=str, default="TotalAmount")
-    parser.add_argument("--experiment_name", type=str, default="Amazon_Sales_Project")
-    parser.add_argument("--run_name", type=str, default="ci_rf_training")
-    parser.add_argument("--n_estimators", type=int, default=100)
-    parser.add_argument("--random_state", type=int, default=42)
-    args = parser.parse_args()
-    train_model(args)
+    train_model()
