@@ -17,6 +17,7 @@ if dagshub_token:
     mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
 
 def train_model(args):
+    # Setup Experiment
     mlflow.set_experiment(args.experiment_name)
     
     # Path dataset absolut
@@ -24,41 +25,37 @@ def train_model(args):
     full_train_path = os.path.join(base_dir, args.train_path)
     full_test_path = os.path.join(base_dir, args.test_path)
     
-    # Load Train & Test Data
+    # Load Data
     train_df = pd.read_csv(full_train_path)
     test_df = pd.read_csv(full_test_path)
     
-    # Seleksi Fitur (Sesuaikan dengan kolom CSV Amazon Anda)
     features = ['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']
     X_train = train_df[features]
     y_train = train_df[args.target]
     X_test = test_df[features]
     y_test = test_df[args.target]
 
-    with mlflow.start_run(run_name=args.run_name):
-        # Log semua argumen sebagai parameter
+    # REVISI: Menggunakan nested=True agar tidak konflik dengan Run ID dari MLflow Project
+    with mlflow.start_run(run_name=args.run_name, nested=True):
         mlflow.log_params(vars(args))
         
-        # Training Model
         model = RandomForestRegressor(n_estimators=args.n_estimators, random_state=args.random_state)
         model.fit(X_train, y_train)
 
-        # Evaluasi menggunakan Test Data
         preds = model.predict(X_test)
         rmse = np.sqrt(mean_squared_error(y_test, preds))
         r2 = r2_score(y_test, preds)
 
-        # Log Metrics ke DagsHub
         mlflow.log_metric("rmse", rmse)
         mlflow.log_metric("r2_score", r2)
 
-        # Log Model ke folder 'model' untuk Docker build
+        # Log Model ke folder 'model'
         mlflow.sklearn.log_model(model, "model")
         
         # Simpan artefak tambahan
         os.makedirs(args.output_dir, exist_ok=True)
         with open(f"{args.output_dir}/summary.txt", "w") as f:
-            f.write(f"Training using: {args.train_path}\nTesting using: {args.test_path}\nR2: {r2}")
+            f.write(f"R2: {r2}")
         mlflow.log_artifacts(args.output_dir, artifact_path="extras")
         
         print(f"CI Retraining Success! R2: {r2}")
