@@ -1,6 +1,6 @@
 name: Amazon_Sales_Project
 
-python_env: python_env.yaml
+conda_env: conda.yaml
 
 entry_points:
   main:
