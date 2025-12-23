@@ -4,7 +4,7 @@ import mlflow
 import mlflow.sklearn
 import argparse 
 from sklearn.ensemble import RandomForestRegressor
-from sklearn.metrics import mean_squared_error, r2_score, mean_absolute_error
+from sklearn.metrics import mean_squared_error, r2_score
 import os
 
 dagshub_token = os.getenv("DAGSHUB_TOKEN")
@@ -15,55 +15,63 @@ if dagshub_token:
     os.environ['MLFLOW_TRACKING_USERNAME'] = dagshub_token
     os.environ['MLFLOW_TRACKING_PASSWORD'] = dagshub_token
     mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
-    print("Otorisasi DagsHub berhasil menggunakan token.")
 
-mlflow.set_experiment("Amazon_Sales")
-
-def train_model(train_path, test_path, n_estimators, max_depth):
+def train_model(args):
+    mlflow.set_experiment(args.experiment_name)
+    
+    # Path dataset absolut
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    full_train_path = os.path.join(base_dir, train_path)
-    full_test_path = os.path.join(base_dir, test_path)
+    full_train_path = os.path.join(base_dir, args.train_path)
+    full_test_path = os.path.join(base_dir, args.test_path)
+    
+    # Load Train & Test Data
+    train_df = pd.read_csv(full_train_path)
+    test_df = pd.read_csv(full_test_path)
+    
+    # Seleksi Fitur (Sesuaikan dengan kolom CSV Amazon Anda)
+    features = ['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']
+    X_train = train_df[features]
+    y_train = train_df[args.target]
+    X_test = test_df[features]
+    y_test = test_df[args.target]
 
-    if not os.path.exists(full_train_path):
-        raise FileNotFoundError(f"Dataset tidak ditemukan: {full_train_path}")
-
-    train = pd.read_csv(full_train_path)
-    test = pd.read_csv(full_test_path)
-
-    X_train = train[['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']]
-    y_train = train['TotalAmount']
-    X_test = test[['Quantity', 'UnitPrice', 'Discount', 'Tax', 'ShippingCost']]
-    y_test = test['TotalAmount']
-
-    with mlflow.start_run(run_name="CI-Retraining-Final"):
-        params = {"n_estimators": n_estimators, "max_depth": max_depth, "random_state": 42}
-        mlflow.log_params(params)
-
-        model = RandomForestRegressor(**params)
+    with mlflow.start_run(run_name=args.run_name):
+        # Log semua argumen sebagai parameter
+        mlflow.log_params(vars(args))
+        
+        # Training Model
+        model = RandomForestRegressor(n_estimators=args.n_estimators, random_state=args.random_state)
         model.fit(X_train, y_train)
 
-        predictions = model.predict(X_test)
-        rmse = np.sqrt(mean_squared_error(y_test, predictions))
-        r2 = r2_score(y_test, predictions)
+        # Evaluasi menggunakan Test Data
+        preds = model.predict(X_test)
+        rmse = np.sqrt(mean_squared_error(y_test, preds))
+        r2 = r2_score(y_test, preds)
 
+        # Log Metrics ke DagsHub
         mlflow.log_metric("rmse", rmse)
         mlflow.log_metric("r2_score", r2)
 
-        # Artefak
-        importance = pd.DataFrame({'feature': X_train.columns, 'importance': model.feature_importances_})
-        importance.to_csv("feature_importance.csv", index=False)
-        mlflow.log_artifact("feature_importance.csv")
-
-        mlflow.sklearn.log_model(model, "random-forest-model")
-        print(f"Training Selesai di GitHub Actions! R2: {r2}")
+        # Log Model ke folder 'model' untuk Docker build
+        mlflow.sklearn.log_model(model, "model")
+        
+        # Simpan artefak tambahan
+        os.makedirs(args.output_dir, exist_ok=True)
+        with open(f"{args.output_dir}/summary.txt", "w") as f:
+            f.write(f"Training using: {args.train_path}\nTesting using: {args.test_path}\nR2: {r2}")
+        mlflow.log_artifacts(args.output_dir, artifact_path="extras")
+        
+        print(f"CI Retraining Success! R2: {r2}")
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--train_path", type=str, default="Amazon_Preprocessing/amazon_train.csv")
-    parser.add_argument("--test_path", type=str, default="Amazon_Preprocessing/amazon_test.csv")
-    parser.add_argument("--n_estimators", type=int, default=100)
-    parser.add_argument("--max_depth", type=int, default=10)
+    parser.add_argument("--train_path", type=str)
+    parser.add_argument("--test_path", type=str)
+    parser.add_argument("--output_dir", type=str)
+    parser.add_argument("--target", type=str)
+    parser.add_argument("--experiment_name", type=str)
+    parser.add_argument("--run_name", type=str)
+    parser.add_argument("--n_estimators", type=int)
+    parser.add_argument("--random_state", type=int)
     args = parser.parse_args()
-
-    train_model(args.train_path, args.test_path, args.n_estimators, args.max_depth)
-
+    train_model(args)
