@@ -27,16 +27,20 @@ jobs:
           python -m pip install --upgrade pip
           pip install mlflow==2.19.0 dagshub pandas scikit-learn matplotlib
 
-      - name: Run MLflow Project
+      - name: Run Training Script
         env:
-          # Token ini digunakan untuk bypass login manual DagsHub
+          # Memberikan akses otorisasi otomatis ke DagsHub
           DAGSHUB_TOKEN: ${{ secrets.DAGSHUB_TOKEN }}
           MLFLOW_TRACKING_USERNAME: ${{ secrets.DAGSHUB_USERNAME }}
           MLFLOW_TRACKING_PASSWORD: ${{ secrets.DAGSHUB_TOKEN }}
         run: |
           cd MLProject
-          # Menjalankan MLflow project dengan environment lokal
-          mlflow run . --env-manager=local
+          # Kita panggil Python langsung untuk stabilitas koneksi Tracking Server
+          python Modelling.py \
+            --train_path Amazon_Preprocessing/amazon_train.csv \
+            --test_path Amazon_Preprocessing/amazon_test.csv \
+            --experiment_name Amazon_Sales_Project \
+            --run_name ci_rf_training
 
       - name: Collect Latest Run Artifacts
         env:
@@ -45,30 +49,29 @@ jobs:
           python - << 'PY'
           import os, shutil, mlflow
           
-          # Konfigurasi Repo
+          # Konfigurasi Repo DagsHub
           repo_owner = "VanQ28"
           repo_name = "Workflow_CI"
           mlflow.set_tracking_uri(f"https://dagshub.com/{repo_owner}/{repo_name}.mlflow")
           
-          # Cari run terbaru dari experiment Amazon_Sales_Project
+          # Cari run terbaru yang baru saja selesai
           try:
               run = mlflow.search_runs(experiment_names=["Amazon_Sales_Project"], order_by=["start_time DESC"], max_results=1).iloc[0]
               run_id = run.run_id
-              print(f"Mengambil Artefak untuk Run ID: {run_id}")
+              print(f"Berhasil menemukan Run ID: {run_id}")
               
               out_dir = f"ci_outputs/{run_id}"
               os.makedirs(out_dir, exist_ok=True)
               
-              # Download folder model untuk kebutuhan build Docker
+              # Download folder 'model' dari DagsHub ke runner GitHub
               model_path = mlflow.artifacts.download_artifacts(run_id=run_id, artifact_path="model")
               shutil.copytree(model_path, f"{out_dir}/model", dirs_exist_ok=True)
               
-              # Simpan Run ID sebagai referensi
               with open(f"{out_dir}/run_id.txt", "w") as f:
                   f.write(run_id)
                   
           except Exception as e:
-              print(f"Gagal mengambil artefak: {e}")
+              print(f"Error saat mengambil artefak: {e}")
               exit(1)
           PY
 
@@ -77,8 +80,8 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add ci_outputs/ || true
-          git commit -m "CI: Update model artifacts [skip ci]" || echo "No changes to commit"
-          git push || echo "No changes to push"
+          git commit -m "CI: Save model artifacts [skip ci]" || echo "No changes"
+          git push || echo "No push"
 
   docker:
     needs: retrain
@@ -87,7 +90,7 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0 # Penting untuk mengambil commit terbaru dari job sebelumnya
+          fetch-depth: 0
 
       - name: Pull latest changes
         run: git pull
@@ -97,7 +100,7 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install MLflow & Dependencies
+      - name: Install MLflow & Build Deps
         run: pip install mlflow==2.19.0 scikit-learn pandas
 
       - name: Login Docker Hub
@@ -106,13 +109,13 @@ jobs:
 
       - name: Build and Push Docker Image
         run: |
-          # Ambil Run ID terbaru dari folder ci_outputs yang baru di-commit
+          # Cari folder Run ID terbaru di ci_outputs
           LATEST_RUN_DIR=$(ls -td ci_outputs/*/ | head -n 1)
           RUN_ID=$(basename $LATEST_RUN_DIR)
           
           IMAGE_NAME="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-ci:latest"
           
-          echo "Building Docker for Run ID: $RUN_ID"
+          echo "Building Docker for Model from Run: $RUN_ID"
           mlflow models build-docker -m "ci_outputs/$RUN_ID/model" -n "$IMAGE_NAME"
           
           echo "Pushing Image to Docker Hub..."
