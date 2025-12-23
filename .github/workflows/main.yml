@@ -89,7 +89,7 @@ jobs:
       - name: Build & Push Docker
         run: |
           pip install mlflow==2.19.0 scikit-learn pandas
-          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/amazon-sales-ci:latest"
+          IMAGE="${{ secrets.DOCKERHUB_USERNAME }}/workflow_ci:latest"
           # Build menggunakan folder temp_model hasil download
           mlflow models build-docker -m "temp_model" -n "$IMAGE"
           docker push "$IMAGE"
